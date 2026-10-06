@@ -199,3 +199,11 @@ Running pipeline scripts on the host against the Dockerized cluster works for Ka
 - Single-broker Kafka, single-DataNode HDFS with `replication=1`. This is a teaching and demo cluster, not production.
 - TF-IDF models learn source style and vocabulary, not truth. The model flags *linguistic patterns associated with unreliable sources*, so treat it as triage for human fact-checkers, not as a verdict on facts.
 - Articles are capped at 10,000 characters before vectorizing, to keep the bigram vocabulary manageable.
+
+## License
+
+The code is released under the [MIT License](LICENSE).
+
+The datasets are not part of this repository and keep their own licences:
+- LIAR (Wang, 2017)
+- the Kaggle Fake News data, fetched via the Hugging Face mirror (CC-BY-ND-4.0).
