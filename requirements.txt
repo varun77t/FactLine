@@ -1,0 +1,12 @@
+kafka-python>=2.1.0,<3
+hdfs>=2.7.3
+scikit-learn>=1.5
+pandas>=2.2
+numpy>=1.26
+joblib>=1.4
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+requests>=2.32
+pytest>=8
+httpx>=0.27

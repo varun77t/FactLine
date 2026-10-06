@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Factline: News Reliability Desk</title>
+  <meta name="description" content="Classify news articles as reliable or unreliable with a TF-IDF model trained on Kafka-ingested, HDFS-stored data.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2316140f'/><path d='M9 23V9h12v3h-8.5v2.6H19v3h-6.5V23z' fill='%23f4efe4'/><circle cx='24' cy='22' r='3' fill='%23d4362c'/></svg>">
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+
+  <header class="masthead">
+    <div class="masthead__rail">
+      <span id="today" class="mono"></span>
+      <span class="rail__pipeline mono">Kafka <i>→</i> HDFS <i>→</i> TF-IDF <i>→</i> API</span>
+      <div class="status" id="status" aria-live="polite">
+        <span class="status__item" data-key="kafka"><b></b>Kafka</span>
+        <span class="status__item" data-key="hdfs"><b></b>HDFS</span>
+        <span class="status__item" data-key="model"><b></b>Model</span>
+        <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle theme">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z" fill="currentColor"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="masthead__title">
+      <h1>Factline</h1>
+      <p class="tagline">The reliability desk: every article read, weighed and stamped before it spreads.</p>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" class="tab is-active" data-view="analyze" aria-selected="true">Analyze</button>
+      <button role="tab" class="tab" data-view="live" aria-selected="false">Live Wire <span class="tab__pulse" id="livePulse"></span></button>
+      <button role="tab" class="tab" data-view="model" aria-selected="false">Model Desk</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ============================== ANALYZE ============================== -->
+    <section class="view is-active" id="view-analyze" role="tabpanel">
+      <div class="analyze">
+        <div class="card editor">
+          <div class="card__head">
+            <h2 class="kicker">Submit copy</h2>
+            <div class="samples" id="samples" aria-label="Load a sample article"></div>
+          </div>
+          <label class="field">
+            <span class="field__label">Headline</span>
+            <input id="title" type="text" placeholder="Optional: paste the headline" autocomplete="off">
+          </label>
+          <label class="field field--grow">
+            <span class="field__label">Article body <em id="charCount" class="mono">0 words</em></span>
+            <textarea id="text" placeholder="Paste the full article or a claim to check…"></textarea>
+          </label>
+          <details class="claim-meta" id="claimMeta">
+            <summary>Claim details <em>optional · improves accuracy on short political claims</em></summary>
+            <div class="claim-meta__grid">
+              <label class="field"><span class="field__label">Speaker</span><input id="mSpeaker" type="text" placeholder="e.g. a senator&rsquo;s name" autocomplete="off"></label>
+              <label class="field"><span class="field__label">Party</span>
+                <select id="mParty">
+                  <option value="">—</option><option>democrat</option><option>republican</option><option>independent</option><option>none</option>
+                </select>
+              </label>
+              <label class="field"><span class="field__label">Topics</span><input id="mSubject" type="text" placeholder="e.g. economy, taxes" autocomplete="off"></label>
+              <label class="field"><span class="field__label">Venue</span><input id="mContext" type="text" placeholder="e.g. a TV interview" autocomplete="off"></label>
+            </div>
+          </details>
+          <div class="editor__actions">
+            <button class="btn btn--primary" id="analyzeBtn">
+              <span>Analyze article</span>
+              <kbd class="mono">Ctrl ↵</kbd>
+            </button>
+            <button class="btn btn--ghost" id="ingestBtn" title="Publish to Kafka; the live scorer will classify it">Send through Kafka</button>
+            <button class="btn btn--text" id="clearBtn">Clear</button>
+          </div>
+          <p class="toast" id="toast" role="status"></p>
+        </div>
+
+        <div class="card verdict" id="verdict" data-state="empty">
+          <div class="verdict__empty">
+            <div class="empty-stamp" aria-hidden="true">?</div>
+            <h3>Awaiting copy</h3>
+            <p>Paste an article or load a sample. The model returns a verdict, a confidence score, and the words that tipped the scale.</p>
+          </div>
+
+          <div class="verdict__body">
+            <div class="verdict__top">
+              <div class="gauge" id="gauge">
+                <svg viewBox="0 0 120 120" aria-hidden="true">
+                  <circle class="gauge__track" cx="60" cy="60" r="52"/>
+                  <circle class="gauge__fill" id="gaugeFill" cx="60" cy="60" r="52"/>
+                </svg>
+                <div class="gauge__label">
+                  <strong id="confValue" class="mono">0%</strong>
+                  <span>confidence</span>
+                </div>
+              </div>
+              <div class="verdict__stamp-wrap">
+                <div class="stamp" id="stamp">Reliable</div>
+                <p class="verdict__meta mono" id="verdictMeta"></p>
+              </div>
+            </div>
+
+            <div class="probbar" aria-label="Class probabilities">
+              <div class="probbar__seg probbar__seg--rel" id="probRel"></div>            </div>
+            <div class="probbar__legend mono">
+              <span><i class="dot dot--rel"></i>Reliable <b id="probRelTxt">0%</b></span>
+              <span>Unreliable <b id="probUnrelTxt">0%</b><i class="dot dot--unrel"></i></span>
+            </div>
+
+            <div class="drivers">
+              <div>
+                <h4 class="kicker kicker--unrel">Pushing toward unreliable</h4>
+                <ul class="terms" id="termsUnrel"></ul>
+              </div>
+              <div>
+                <h4 class="kicker kicker--rel">Pushing toward reliable</h4>
+                <ul class="terms" id="termsRel"></ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <article class="card annotated" id="annotated" hidden>
+        <div class="card__head">
+          <h2 class="kicker">Annotated copy</h2>
+          <div class="legend mono">
+            <span><mark class="hl hl--unrel">term</mark> signals unreliable</span>
+            <span><mark class="hl hl--rel">term</mark> signals reliable</span>
+          </div>
+        </div>
+        <h3 class="annotated__title" id="annTitle"></h3>
+        <div class="annotated__text" id="annText"></div>
+      </article>
+    </section>
+
+    <!-- ============================== LIVE ============================== -->
+    <section class="view" id="view-live" role="tabpanel">
+      <div class="live__head">
+        <div class="stats">
+          <div class="stat"><span class="stat__label">Scored</span><strong class="stat__value mono" id="liveCount">0</strong></div>
+          <div class="stat"><span class="stat__label">Flagged unreliable</span><strong class="stat__value mono" id="liveUnrel">0%</strong></div>
+          <div class="stat"><span class="stat__label">Avg confidence</span><strong class="stat__value mono" id="liveConf">0%</strong></div>
+          <div class="stat stat--spark">
+            <span class="stat__label">Throughput · last 15 min</span>
+            <canvas id="spark" height="44"></canvas>
+          </div>
+        </div>
+        <div class="live__actions">
+          <span class="wire-state mono" id="wireState">connecting…</span>
+          <button class="btn btn--ghost" id="burstBtn">Send sample burst</button>
+        </div>
+      </div>
+      <div class="feed" id="feed">
+        <div class="feed__empty">
+          <h3>The wire is quiet</h3>
+          <p>Articles published to the <code>news-incoming</code> Kafka topic appear here once the live scorer has stamped them. Use <b>Send through Kafka</b> or <b>Send sample burst</b>.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== MODEL ============================== -->
+    <section class="view" id="view-model" role="tabpanel">
+      <div class="model-empty card" id="modelEmpty" hidden>
+        <h3>No model trained yet</h3>
+        <p>Run <code>docker compose run --rm trainer</code> to train on the articles stored in HDFS.</p>
+      </div>
+      <div id="modelBody">
+        <div class="model-hero">
+          <div>
+            <h2 class="kicker">Production model</h2>
+            <p class="model-name" id="modelName">—</p>
+            <p class="model-sub mono" id="modelSub"></p>
+          </div>
+          <div class="kpis" id="kpis"></div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card__head"><h3 class="kicker">Logistic Regression vs Naive Bayes</h3></div>
+            <div class="chart-box"><canvas id="compareChart"></canvas></div>
+          </div>
+          <div class="card">
+            <div class="card__head">
+              <h3 class="kicker">Confusion matrix</h3>
+              <div class="seg" id="cmSource" role="group" aria-label="Confusion matrix scope"></div>
+            </div>
+            <div class="cm" id="cm"></div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card__head"><h3 class="kicker">By dataset</h3></div>
+            <table class="table" id="sourceTable"></table>
+            <p class="note" id="sourceNote"></p>
+          </div>
+          <div class="card">
+            <div class="card__head"><h3 class="kicker">Most telling terms</h3><div class="seg" id="vocabRoute" role="group" aria-label="Sub-model"></div></div>
+            <div class="vocab">
+              <div><h4 class="kicker kicker--unrel">Unreliable</h4><ol id="vocabUnrel"></ol></div>
+              <div><h4 class="kicker kicker--rel">Reliable</h4><ol id="vocabRel"></ol></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card lineage">
+          <div class="card__head"><h3 class="kicker">Data lineage</h3></div>
+          <ol class="flow" id="flow"></ol>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot mono">
+    <span>Factline · TF-IDF + Logistic Regression / Naive Bayes</span>
+    <a href="/docs">API docs ↗</a>
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

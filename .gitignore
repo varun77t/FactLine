@@ -1,0 +1,16 @@
+data/raw/*
+!data/raw/.gitkeep
+models/*
+!models/.gitkeep
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# local tooling / editor state
+.claude/
+.impeccable/
+.vscode/
+.idea/
+.env
+*.log
